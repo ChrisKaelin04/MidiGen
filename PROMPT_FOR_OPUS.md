@@ -1,5 +1,9 @@
 # MidiGen — Implementation Prompt for Claude Opus
 
+## Instructions for Opus
+
+Generate all files completely — do not truncate, summarize, or use placeholder comments like `# ... rest of code`. If the full response is too long for one reply, stop at a clean file boundary and wait for the user to say "continue" before proceeding with the next file.
+
 ## Project Overview
 
 Build a standalone, cross-platform (Windows/Linux) desktop GUI application called **MidiGen** that converts audio files (MP3, WAV, FLAC) to MIDI using machine learning transcription. The primary use case is electronic dance music (EDM) production. The user is the primary developer and will extend the app over time — code must be modular, clean, and independently testable per module.
