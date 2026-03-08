@@ -1,0 +1,15 @@
+PyQt6>=6.6
+pyqtgraph>=0.13
+superqt>=0.6
+# basic-pitch installed separately with --no-deps (tensorflow incompatible with Python 3.13)
+# Then we provide its actual runtime deps below:
+onnxruntime>=1.15
+mir-eval>=0.6
+resampy>=0.2.2,<0.4.3
+scikit-learn
+librosa>=0.10
+pretty_midi>=0.2
+numpy>=1.24
+soundfile>=0.12
+audioread>=3.0
+pytest>=8.0

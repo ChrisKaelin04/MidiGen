@@ -354,3 +354,70 @@ python main.py
 ```
 
 on both Windows (Python 3.10+) and Linux (Python 3.10+).
+
+---
+
+## Continuation Notes (Session 1 — 2026-03-07)
+
+### Current State
+- **73/73 tests passing (67 unit + 6 pipeline)** — ALL GREEN
+- All core modules implemented and working: audio_loader, transcriber, midi_processor, midi_exporter
+- GUI fully functional with dark/light themes, spectrogram, piano roll, all controls
+- Three DSP enhancement techniques implemented: harmonic filtering, multi-pass ensemble, HPSS
+- Deep DSP research documented in `DSP_RESEARCH.md`
+
+### piano4_chord — SOLVED
+Was 50.9% F1, now **89.5% F1** (P=89.4%, R=89.7%).
+
+**Root cause was twofold:**
+1. Harmonic filter removed real chord voicings (octaves/fifths ARE real chord notes)
+2. Onset threshold too low for rapid repeated chords — caused fragmented detections
+
+**Fix:** `filter_harmonics: false`, `onset_threshold: 0.55`, `confidence_threshold: 0.23`
+
+**Key learning:** Different material types need radically different parameter profiles.
+The harmonic filter helps melodies but hurts chords. High onset threshold helps rapid
+chords but would miss soft onsets in pads. See DSP_RESEARCH.md for the full systematic
+threshold search and 8 ranked improvement strategies.
+
+### What to Work On Next
+
+**High priority (do first):**
+1. **Adaptive harmonic filter** — Instead of binary on/off, detect chord density per onset
+   group and skip filtering for groups with >3 simultaneous notes. This eliminates the need
+   for per-fixture `filter_harmonics` overrides. (Low-medium effort, high impact)
+
+2. **Material type presets in GUI** — Add a dropdown: Melody, Chords, Pads, Bass, Full Mix.
+   Each sets sensible defaults for all ML/DSP parameters. User can fine-tune from there.
+   (Low effort, high UX impact)
+
+3. **More test fixtures** — Target 10+ before real track testing. Need: synth lead, isolated
+   bass, two-hand piano, simple EDM loop, trance supersaw chords.
+
+**Medium priority:**
+4. **Complementary multi-pass** — Instead of majority-vote ensemble, run two passes with
+   complementary configs and take the union. One pass catches clean onsets, the other catches
+   notes the first missed.
+
+5. **Temporal consistency filling** — If a note appears in 14/16 repeated chord strikes but
+   is missing in 2, fill it in. Very effective for EDM's repetitive patterns.
+
+6. **Chroma cross-reference** — Use librosa chroma features to validate/reject basic-pitch
+   detections.
+
+**Lower priority (exploratory):**
+7. Frequency band splitting (uncertain if basic-pitch handles isolated bands well)
+8. Chord completion via music theory (risky, could introduce false positives)
+9. Spectrogram-based onset anchoring (high effort, significant rework)
+
+### Files Not Yet Created
+- `tests/add_fixture.py` — CLI helper for adding fixture pairs
+- `build.py` — PyInstaller build script
+
+### Technical Debt
+- basic-pitch installation requires `--no-deps` workaround for Python 3.13
+- Deprecation warnings from resampy (pkg_resources) and audioread (aifc/sunau)
+- GUI drag-drop to FL Studio not manually verified
+- Linux not yet tested
+- Ensemble mode exists but hasn't proven effective — majority voting too strict for chords,
+  needs rework to union-merge mode (see DSP_RESEARCH.md #3)

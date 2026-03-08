@@ -1,0 +1,8 @@
+{
+  "confidence_threshold": 0.23,
+  "onset_threshold": 0.55,
+  "frame_threshold": 0.15,
+  "minimum_note_length_ms": 40,
+  "ensemble_passes": 1,
+  "filter_harmonics": false
+}

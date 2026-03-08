@@ -1,0 +1,17 @@
+{
+  "bpm": 120,
+  "start_sec": 0,
+  "end_sec": 0,
+  "confidence_threshold": 0.5,
+  "onset_threshold": 0.5,
+  "frame_threshold": 0.3,
+  "minimum_note_length_ms": 58,
+  "ensemble_passes": 1,
+  "use_hpss": false,
+  "filter_harmonics": true,
+  "note_low": 36,
+  "note_high": 84,
+  "filter_ghost_notes": true,
+  "dynamic_velocity": false,
+  "preserve_durations": true
+}
