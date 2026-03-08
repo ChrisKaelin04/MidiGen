@@ -1,4 +1,6 @@
 @echo off
 echo Starting MidiGen...
-python main.py
+cd /d "%~dp0.."
+call conda activate base 2>nul
+python -m run.main
 pause

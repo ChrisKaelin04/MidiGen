@@ -1,3 +1,4 @@
 #!/bin/bash
 echo "Starting MidiGen..."
-python3 main.py
+cd "$(dirname "$0")/.."
+python3 -m run.main

@@ -2,17 +2,22 @@
 
 import subprocess
 import sys
+from pathlib import Path
+
+# Resolve paths relative to project root
+_project_root = Path(__file__).resolve().parent.parent
 
 
 def build() -> None:
+    sep = ';' if sys.platform == 'win32' else ':'
     cmd = [
         sys.executable, '-m', 'PyInstaller',
         '--name', 'MidiGen',
         '--onefile',
         '--windowed',
-        '--add-data', 'core:core',
-        '--add-data', 'gui:gui',
-        'main.py',
+        '--add-data', f'{_project_root / "core"}{sep}core',
+        '--add-data', f'{_project_root / "gui"}{sep}gui',
+        str(_project_root / 'run' / 'main.py'),
     ]
 
     print(f"Running: {' '.join(cmd)}")
