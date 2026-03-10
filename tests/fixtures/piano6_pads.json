@@ -4,5 +4,9 @@
   "frame_threshold": 0.15,
   "minimum_note_length_ms": 80,
   "ensemble_passes": 1,
-  "filter_harmonics": false
+  "filter_harmonics": false,
+  "harmonic_filter_mode": "off",
+  "merge_fragments": true,
+  "fragment_gap_tol": 0.15,
+  "fragment_reattack_ratio": 1.5
 }

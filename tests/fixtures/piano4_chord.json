@@ -4,5 +4,7 @@
   "frame_threshold": 0.15,
   "minimum_note_length_ms": 40,
   "ensemble_passes": 1,
-  "filter_harmonics": false
+  "fill_patterns": true,
+  "pattern_min_reps": 4,
+  "pattern_fill_threshold": 0.75
 }

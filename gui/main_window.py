@@ -364,8 +364,16 @@ class _PipelineWorker(QThread):
                 dynamic_velocity=self.config.dynamic_velocity,
                 preserve_durations=self.config.preserve_durations,
                 do_filter_harmonics=self.config.filter_harmonics,
+                harmonic_filter_mode=self.config.harmonic_filter_mode,
                 quantize_grid=self.config.quantize_grid,
                 velocity_curve=self.config.velocity_curve,
+                do_merge_fragments=self.config.merge_fragments,
+                fragment_gap_tol=self.config.fragment_gap_tol,
+                fragment_reattack_ratio=self.config.fragment_reattack_ratio,
+                timing_offset_grid=self.config.timing_offset_grid,
+                do_fill_patterns=self.config.fill_patterns,
+                pattern_min_reps=self.config.pattern_min_reps,
+                pattern_fill_threshold=self.config.pattern_fill_threshold,
             )
 
             self.status.emit("Building MIDI file...")

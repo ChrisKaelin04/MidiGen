@@ -206,6 +206,14 @@ def test_pipeline_fixture(pair: FixturePair) -> None:
         ensemble_passes=meta.get('ensemble_passes', 1),
         use_hpss=meta.get('use_hpss', False),
         filter_harmonics=meta.get('filter_harmonics', True),
+        harmonic_filter_mode=meta.get('harmonic_filter_mode', 'adaptive'),
+        merge_fragments=meta.get('merge_fragments', False),
+        fragment_gap_tol=meta.get('fragment_gap_tol', 0.05),
+        fragment_reattack_ratio=meta.get('fragment_reattack_ratio', 1.5),
+        timing_offset_grid=meta.get('timing_offset_grid', 0.0),
+        fill_patterns=meta.get('fill_patterns', False),
+        pattern_min_reps=meta.get('pattern_min_reps', 4),
+        pattern_fill_threshold=meta.get('pattern_fill_threshold', 0.75),
     )
 
     end_sec = config.end_sec if config.end_sec > 0 else None
@@ -231,6 +239,14 @@ def test_pipeline_fixture(pair: FixturePair) -> None:
         dynamic_velocity=config.dynamic_velocity,
         preserve_durations=config.preserve_durations,
         do_filter_harmonics=config.filter_harmonics,
+        harmonic_filter_mode=config.harmonic_filter_mode,
+        do_merge_fragments=config.merge_fragments,
+        fragment_gap_tol=config.fragment_gap_tol,
+        fragment_reattack_ratio=config.fragment_reattack_ratio,
+        timing_offset_grid=config.timing_offset_grid,
+        do_fill_patterns=config.fill_patterns,
+        pattern_min_reps=config.pattern_min_reps,
+        pattern_fill_threshold=config.pattern_fill_threshold,
     )
     result_midi = build_midi(processed, config.bpm)
 
