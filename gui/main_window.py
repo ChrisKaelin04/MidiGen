@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from core import AudioData, NoteEvent, ProcessingConfig
 from core.audio_loader import load_audio, detect_bpm, apply_hpss
 from core.transcriber import transcribe
+from core.spectral_validator import spectral_validate
 from core.midi_processor import process
 from core.midi_exporter import build_midi, save, save_temp
 from gui.controls_panel import ControlsPanel
@@ -353,6 +354,19 @@ class _PipelineWorker(QThread):
                 ensemble_passes=passes,
                 melodia_trick=self.config.melodia_trick,
             )
+
+            if self.config.spectral_validate:
+                self.status.emit("Validating notes against spectrogram...")
+                notes = spectral_validate(
+                    audio, notes,
+                    energy_floor_db=self.config.spectral_energy_floor_db,
+                    overtone_margin_db=self.config.spectral_overtone_margin_db,
+                    recovery_min_energy_db=self.config.spectral_recovery_min_db,
+                    recovery_min_duration_sec=self.config.spectral_recovery_min_dur,
+                    blind_spot_boost_db=self.config.spectral_blind_spot_boost_db,
+                    do_recover=self.config.spectral_do_recover,
+                    do_resolve_overlaps=self.config.spectral_do_resolve_overlaps,
+                )
 
             self.status.emit(f"Processing {len(notes)} detected notes...")
             processed = process(

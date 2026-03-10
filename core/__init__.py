@@ -62,3 +62,12 @@ class ProcessingConfig:
     melodia_trick: bool = True
     # Velocity curve exponent (1.0=linear, <1=boost quiet, >1=compress dynamics)
     velocity_curve: float = 1.0
+    # Spectral validation — use CQT to validate/recover notes
+    spectral_validate: bool = False
+    spectral_energy_floor_db: float = -50.0
+    spectral_overtone_margin_db: float = 6.0
+    spectral_recovery_min_db: float = -35.0
+    spectral_recovery_min_dur: float = 0.05
+    spectral_blind_spot_boost_db: float = 8.0
+    spectral_do_recover: bool = True
+    spectral_do_resolve_overlaps: bool = True

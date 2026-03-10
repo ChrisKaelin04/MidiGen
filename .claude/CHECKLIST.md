@@ -115,19 +115,20 @@ Track progress here as Opus generates code and you verify/test each piece.
 
 ## Phase 5: Testing
 
-### Unit Tests (no audio files needed) — ALL 67 PASSING
-- [x] `test_midi_processor.py` — 38 tests (includes filter_harmonics, snap_durations, process variants)
+### Unit Tests (no audio files needed) — ALL 161 PASSING
+- [x] `test_midi_processor.py` — 79 tests (harmonics, fragments, patterns, timing, process)
+- [x] `test_spectral_validator.py` — 56 tests (CQT, validation, recovery, overlaps, integration)
 - [x] `test_midi_exporter.py` — 9 tests
 - [x] `test_transcriber.py` — 6 tests (mocks basic_pitch.inference.predict)
-- [x] `test_audio_loader.py` — 8 tests
+- [x] `test_audio_loader.py` — 11 tests
 
 ### Pipeline Tests (requires fixture files) — 6/6 PASSING
-- [x] piano1 — simple piano, PASSING
-- [x] piano2 — simple piano, PASSING
-- [x] piano3_arp — arpeggiated patterns, PASSING
-- [x] piano4_chord — rapid 5-note chords, PASSING (89.5% F1, was 50.9%)
-- [x] piano5_leadandbass — melody + bass, PASSING
-- [x] piano6_pads — sustained pad chords, PASSING
+- [x] piano1 — mono melody, 100% F1
+- [x] piano2 — mono melody, 97.3% F1 (1 FP)
+- [x] piano3_arp — mono arp, 96.4% F1 (ghost filter kills 8 borderline notes)
+- [x] piano4_chord — 7th/9th chords, 89.7% F1 (blind spots B4/F#4)
+- [x] piano5_leadandbass — melody+bass, 85.1% F1 (missed notes + overtone FPs)
+- [x] piano6_pads — 7th/9th pads, 71.4% F1 (B4 undetectable, many below conf)
 
 ---
 
@@ -157,25 +158,32 @@ Track progress here as Opus generates code and you verify/test each piece.
 
 - **Deprecation warnings**: `pkg_resources` deprecation in resampy, `aifc`/`sunau` removed in Python 3.13 (audioread imports them). Non-blocking but may break in future Python versions.
 
-- **Model blind spots**: basic-pitch cannot detect B4 (71) in the piano4_chord fixture
-  at any reasonable threshold. F#4 (66) also very weak. These are inherent model limitations.
+- **Model blind spots**: basic-pitch cannot detect B4 (71) in piano4_chord at any
+  threshold (amp 0.15-0.19, all below conf 0.23). F#4 (66) also very weak. In piano6_pads,
+  B4 has ZERO raw detections. Only spectral recovery can fix these.
+
+- **Ghost filter too aggressive for arps**: piano3_arp has 8 notes at 116ms (9ms below
+  the 125ms 1/16th threshold at 120 BPM). Spectral-aware ghost filter needed.
+
+- **Spectral validation research complete**: See `.claude/SPECTRAL_VALIDATION_RESEARCH.md`
+  for deep audit of every note loss, what was tried, and design proposals for next session.
 
 ---
 
-## Next Session Plan (see DSP_RESEARCH.md for full details)
+## Next Session Plan (see SPECTRAL_VALIDATION_RESEARCH.md for full design)
 
-### Target: 90%+ F1 on ALL piano fixtures
+### Target: 99%+ F1 on ALL piano fixtures
 
-Current gaps: piano6_pads (60.6%), piano5_leadandbass (85.1%), piano4_chord (89.5%)
+Current: piano1=100%, piano2=97.3%, piano3=96.4%, piano4=89.7%, piano5=85.1%, piano6=71.4%
 
-### Branches to pursue (in order):
-1. `feature/fragment-merging` — Stitch fragmented sustained notes back together (piano6_pads)
-2. `feature/adaptive-harmonic-filter` — Auto-detect chords vs melody for smart filtering
-3. `feature/temporal-filling` — Fill missing notes in repeating patterns (EDM-critical)
-4. `feature/material-presets` — GUI dropdown for Melody/Chords/Pads/Bass/Full Mix
-5. `feature/union-merge-ensemble` — Rework ensemble from majority-vote to union-merge
-6. `feature/chroma-validation` — Use librosa chroma as cross-reference for pitch validation
-7. `feature/music-theory` — Key detection, chord recognition, scale filtering (advanced)
+### Implementation order (on branch `feature/spectral-validation`):
+1. **Spectral-aware ghost filter** — check CQT energy before killing short notes (fixes piano3 → ~99%)
+2. **Confidence-gated spectral validation** — lower conf to 0.10, use CQT energy to validate/reject (fixes piano4/5/6)
+3. **Chunk-based adaptive thresholds** — per-window energy percentiles (required for #2 to work across dynamic range)
+4. **Onset-aligned chord completion** — use chord context to add missing notes at shared onsets
+5. **Harmonic fingerprinting** — check if candidate has own harmonic series (vs just being an overtone)
+6. **Polyphony hint UI** — user specifies mono/low-poly/chords/pads for parameter profiles
+7. **Ensemble + spectral synergy** — ensemble consensus as second vote alongside spectral energy
 
 ---
 

@@ -25,6 +25,7 @@ import pytest
 from core import ProcessingConfig
 from core.audio_loader import load_audio, apply_hpss
 from core.transcriber import transcribe
+from core.spectral_validator import spectral_validate
 from core.midi_processor import process
 from core.midi_exporter import build_midi
 
@@ -214,6 +215,14 @@ def test_pipeline_fixture(pair: FixturePair) -> None:
         fill_patterns=meta.get('fill_patterns', False),
         pattern_min_reps=meta.get('pattern_min_reps', 4),
         pattern_fill_threshold=meta.get('pattern_fill_threshold', 0.75),
+        spectral_validate=meta.get('spectral_validate', False),
+        spectral_energy_floor_db=meta.get('spectral_energy_floor_db', -50.0),
+        spectral_overtone_margin_db=meta.get('spectral_overtone_margin_db', 6.0),
+        spectral_recovery_min_db=meta.get('spectral_recovery_min_db', -35.0),
+        spectral_recovery_min_dur=meta.get('spectral_recovery_min_dur', 0.05),
+        spectral_blind_spot_boost_db=meta.get('spectral_blind_spot_boost_db', 8.0),
+        spectral_do_recover=meta.get('spectral_do_recover', True),
+        spectral_do_resolve_overlaps=meta.get('spectral_do_resolve_overlaps', True),
     )
 
     end_sec = config.end_sec if config.end_sec > 0 else None
@@ -230,6 +239,19 @@ def test_pipeline_fixture(pair: FixturePair) -> None:
         minimum_note_length_ms=config.minimum_note_length_ms,
         ensemble_passes=config.ensemble_passes,
     )
+
+    if config.spectral_validate:
+        notes = spectral_validate(
+            audio, notes,
+            energy_floor_db=config.spectral_energy_floor_db,
+            overtone_margin_db=config.spectral_overtone_margin_db,
+            recovery_min_energy_db=config.spectral_recovery_min_db,
+            recovery_min_duration_sec=config.spectral_recovery_min_dur,
+            blind_spot_boost_db=config.spectral_blind_spot_boost_db,
+            do_recover=config.spectral_do_recover,
+            do_resolve_overlaps=config.spectral_do_resolve_overlaps,
+        )
+
     processed = process(
         notes,
         bpm=config.bpm,

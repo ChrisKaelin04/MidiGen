@@ -41,6 +41,7 @@ MidiGen/
 │   ├── __init__.py
 │   ├── audio_loader.py        # Load audio files, trim to selection, return numpy array
 │   ├── transcriber.py         # Wrap basic-pitch, return list of NoteEvent dataclasses
+│   ├── spectral_validator.py  # CQT-based note validation, recovery, overlap resolution
 │   ├── midi_processor.py      # Quantize to 1/16 grid, filter ghosts, handle velocity
 │   └── midi_exporter.py       # Build PrettyMIDI object, save .mid, expose drag-drop path
 ├── gui/
@@ -357,58 +358,50 @@ on both Windows (Python 3.10+) and Linux (Python 3.10+).
 
 ---
 
-## Continuation Notes (Session 1 — 2026-03-07)
+## Continuation Notes (Session 3 — 2026-03-10)
 
 ### Current State
-- **73/73 tests passing (67 unit + 6 pipeline)** — ALL GREEN
-- All core modules implemented and working: audio_loader, transcriber, midi_processor, midi_exporter
-- GUI fully functional with dark/light themes, spectrogram, piano roll, all controls
-- Three DSP enhancement techniques implemented: harmonic filtering, multi-pass ensemble, HPSS
-- Deep DSP research documented in `DSP_RESEARCH.md`
+- **167 tests passing** (79 midi_processor + 56 spectral_validator + 11 audio_loader + 9 midi_exporter + 6 transcriber + 6 pipeline)
+- Branch: `feature/spectral-validation` — all changes uncommitted
+- New module: `core/spectral_validator.py` — CQT-based validation, recovery, overlap resolution
+- Wired into pipeline (test_pipeline.py) and GUI (main_window.py), defaults OFF
+- Deep audit complete: every missed/extra note categorized across all 6 fixtures
+- Full design document: `.claude/SPECTRAL_VALIDATION_RESEARCH.md`
 
-### piano4_chord — SOLVED
-Was 50.9% F1, now **89.5% F1** (P=89.4%, R=89.7%).
+### F1 Scores (unchanged — spectral defaults to off)
+piano1=100%, piano2=97.3%, piano3_arp=96.4%, piano4_chord=89.7%, piano5_lead=85.1%, piano6_pads=71.4%
 
-**Root cause was twofold:**
-1. Harmonic filter removed real chord voicings (octaves/fifths ARE real chord notes)
-2. Onset threshold too low for rapid repeated chords — caused fragmented detections
+### Fixture Polyphony (user-confirmed)
+- piano1, piano2, piano3_arp: **monophonic**
+- piano5_leadandbass: **low poly** (≤2 simultaneous)
+- piano4_chord, piano6_pads: **high poly** (7th/9th chords)
 
-**Fix:** `filter_harmonics: false`, `onset_threshold: 0.55`, `confidence_threshold: 0.23`
+### Key Findings
+1. **Ghost filter kills 8 real notes in piano3_arp** — 116ms vs 125ms threshold (9ms gap)
+2. **B4/F#4 are model blind spots** — basic-pitch detects them at amp 0.15-0.20, far below any useful confidence threshold. In piano6_pads, B4 has ZERO detections.
+3. **All missed notes exist in raw transcription** (except piano6 B4) — they're killed by confidence thresholds. The data IS there, just below the bar.
+4. **Absolute dB thresholds don't work** — must be relative to piece's energy profile
+5. **Energy varies across the piece** — chunk-based percentiles needed, not single median
+6. **Spectral recovery floods with false positives** — harmonic overtones show energy at CQT bins. Need harmonic fingerprinting to distinguish real notes from resonance.
 
-**Key learning:** Different material types need radically different parameter profiles.
-The harmonic filter helps melodies but hurts chords. High onset threshold helps rapid
-chords but would miss soft onsets in pads. See DSP_RESEARCH.md for the full systematic
-threshold search and 8 ranked improvement strategies.
+### Architecture for Next Session: "Propose Everything, Spectrogram Confirms"
+The fundamental shift: instead of high confidence threshold → hope for the best:
+1. Lower basic-pitch confidence to ~0.10 (pulls in 3x more candidates including blind spots)
+2. Compute CQT spectrogram with chunk-based adaptive thresholds
+3. Validate each candidate: does it have real spectral energy relative to local context?
+4. For chord material: onset-aligned chord completion (if 3/5 chord tones confirmed, check if other 2 have energy)
+5. Harmonic fingerprint test: does the candidate have its OWN harmonic series?
+6. Ensemble consensus as additional vote alongside spectral evidence
+7. User polyphony hint controls aggression of recovery vs false-positive tolerance
 
-### What to Work On Next
-
-**High priority (do first):**
-1. **Adaptive harmonic filter** — Instead of binary on/off, detect chord density per onset
-   group and skip filtering for groups with >3 simultaneous notes. This eliminates the need
-   for per-fixture `filter_harmonics` overrides. (Low-medium effort, high impact)
-
-2. **Material type presets in GUI** — Add a dropdown: Melody, Chords, Pads, Bass, Full Mix.
-   Each sets sensible defaults for all ML/DSP parameters. User can fine-tune from there.
-   (Low effort, high UX impact)
-
-3. **More test fixtures** — Target 10+ before real track testing. Need: synth lead, isolated
-   bass, two-hand piano, simple EDM loop, trance supersaw chords.
-
-**Medium priority:**
-4. **Complementary multi-pass** — Instead of majority-vote ensemble, run two passes with
-   complementary configs and take the union. One pass catches clean onsets, the other catches
-   notes the first missed.
-
-5. **Temporal consistency filling** — If a note appears in 14/16 repeated chord strikes but
-   is missing in 2, fill it in. Very effective for EDM's repetitive patterns.
-
-6. **Chroma cross-reference** — Use librosa chroma features to validate/reject basic-pitch
-   detections.
-
-**Lower priority (exploratory):**
-7. Frequency band splitting (uncertain if basic-pitch handles isolated bands well)
-8. Chord completion via music theory (risky, could introduce false positives)
-9. Spectrogram-based onset anchoring (high effort, significant rework)
+### Implementation Order
+1. Spectral-aware ghost filter (trivial, fixes piano3)
+2. Confidence-gated spectral validation (big, fixes piano4/5/6)
+3. Chunk-based adaptive thresholds (required for #2)
+4. Onset-aligned chord completion
+5. Harmonic fingerprinting
+6. Polyphony hint UI
+7. Ensemble+spectral synergy
 
 ### Files Not Yet Created
 - `tests/add_fixture.py` — CLI helper for adding fixture pairs
@@ -419,5 +412,5 @@ threshold search and 8 ranked improvement strategies.
 - Deprecation warnings from resampy (pkg_resources) and audioread (aifc/sunau)
 - GUI drag-drop to FL Studio not manually verified
 - Linux not yet tested
-- Ensemble mode exists but hasn't proven effective — majority voting too strict for chords,
-  needs rework to union-merge mode (see DSP_RESEARCH.md #3)
+- Ensemble majority-vote too strict for chords — needs union-merge rework
+- Spectral validation work committed on `feature/spectral-validation` branch (initial commit)
