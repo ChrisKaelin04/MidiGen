@@ -44,3 +44,9 @@ class ProcessingConfig:
     ensemble_passes: int          # number of multi-pass runs (1 = single, 3-5 = ensemble)
     use_hpss: bool                # apply harmonic/percussive separation before transcription
     filter_harmonics: bool        # remove detected overtone/harmonic notes
+    # Quantization grid
+    quantize_grid: str = "1/16"   # "1/8", "1/16", "1/32", "1/8T", "1/16T"
+    # Melodia trick — basic-pitch post-processing to clean pitch contours
+    melodia_trick: bool = True
+    # Velocity curve exponent (1.0=linear, <1=boost quiet, >1=compress dynamics)
+    velocity_curve: float = 1.0

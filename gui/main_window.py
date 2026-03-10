@@ -1,8 +1,6 @@
 """Main application window — wires all panels, manages app state and pipeline."""
 
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -16,7 +14,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSplitter,
+    QSizePolicy,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -29,7 +27,6 @@ from core.midi_processor import process
 from core.midi_exporter import build_midi, save, save_temp
 from gui.controls_panel import ControlsPanel
 from gui.waveform_view import WaveformView
-from gui.midi_preview import MidiPreview
 
 import pretty_midi
 
@@ -40,16 +37,19 @@ _DEFAULT_CONFIG = {
     "bpm": 120,
     "confidence_threshold": 0.5,
     "note_low": 36,
-    "note_high": 84,
+    "note_high": 108,
     "filter_ghost_notes": True,
     "dynamic_velocity": False,
     "preserve_durations": True,
     "onset_threshold": 0.5,
     "frame_threshold": 0.3,
     "minimum_note_length_ms": 58,
-    "ensemble_passes": 1,
+    "ensemble_passes": 3,
     "use_hpss": False,
     "filter_harmonics": True,
+    "quantize_grid": "1/16",
+    "melodia_trick": True,
+    "velocity_curve": 1.0,
     "theme": "dark",
     "last_directory": str(Path.home()),
 }
@@ -80,7 +80,7 @@ QPushButton {
     background-color: #2d2d2d;
     border: 1px solid #3a3a3a;
     border-radius: 4px;
-    padding: 6px 16px;
+    padding: 6px 12px;
     color: #f0f0f0;
 }
 QPushButton:hover {
@@ -89,6 +89,11 @@ QPushButton:hover {
 }
 QPushButton:pressed {
     background-color: #4a9eff;
+}
+QPushButton:checked {
+    background-color: #4a9eff;
+    border-color: #4a9eff;
+    color: #ffffff;
 }
 QPushButton:disabled {
     color: #666666;
@@ -151,6 +156,11 @@ QMenuBar::item:selected {
 QMenu {
     background-color: #2d2d2d;
     border: 1px solid #3a3a3a;
+    min-width: 200px;
+    padding: 4px 0px;
+}
+QMenu::item {
+    padding: 6px 30px 6px 20px;
 }
 QMenu::item:selected {
     background-color: #4a9eff;
@@ -202,7 +212,7 @@ QPushButton {
     background-color: #e8e8e8;
     border: 1px solid #cccccc;
     border-radius: 4px;
-    padding: 6px 16px;
+    padding: 6px 12px;
     color: #1e1e1e;
 }
 QPushButton:hover {
@@ -211,6 +221,11 @@ QPushButton:hover {
 }
 QPushButton:pressed {
     background-color: #0066cc;
+    color: #ffffff;
+}
+QPushButton:checked {
+    background-color: #0066cc;
+    border-color: #0066cc;
     color: #ffffff;
 }
 QPushButton:disabled {
@@ -273,6 +288,11 @@ QMenuBar::item:selected {
 QMenu {
     background-color: #ffffff;
     border: 1px solid #cccccc;
+    min-width: 200px;
+    padding: 4px 0px;
+}
+QMenu::item {
+    padding: 6px 30px 6px 20px;
 }
 QMenu::item:selected {
     background-color: #0066cc;
@@ -331,6 +351,7 @@ class _PipelineWorker(QThread):
                 frame_threshold=self.config.frame_threshold,
                 minimum_note_length_ms=self.config.minimum_note_length_ms,
                 ensemble_passes=passes,
+                melodia_trick=self.config.melodia_trick,
             )
 
             self.status.emit(f"Processing {len(notes)} detected notes...")
@@ -343,6 +364,8 @@ class _PipelineWorker(QThread):
                 dynamic_velocity=self.config.dynamic_velocity,
                 preserve_durations=self.config.preserve_durations,
                 do_filter_harmonics=self.config.filter_harmonics,
+                quantize_grid=self.config.quantize_grid,
+                velocity_curve=self.config.velocity_curve,
             )
 
             self.status.emit("Building MIDI file...")
@@ -429,6 +452,11 @@ class MainWindow(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
+        guide_action = QAction("&Controls Guide", self)
+        guide_action.setShortcut("F1")
+        guide_action.triggered.connect(self._show_controls_guide)
+        help_menu.addAction(guide_action)
+        help_menu.addSeparator()
         about_action = QAction("&About MidiGen", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -447,27 +475,17 @@ class MainWindow(QMainWindow):
         file_row.addWidget(self.file_label, 1)
         main_layout.addLayout(file_row)
 
-        # Main content splitter (vertical)
-        splitter = QSplitter(Qt.Orientation.Vertical)
-
-        # Waveform view
+        # Main visualization — spectrogram with MIDI overlay
         self.waveform_view = WaveformView()
-        splitter.addWidget(self.waveform_view)
+        main_layout.addWidget(self.waveform_view, 1)
 
-        # Controls panel
+        # Controls panel — compact, fixed height, NOT in splitter
         self.controls = ControlsPanel()
         self.controls.generate_btn.setObjectName("generateBtn")
-        splitter.addWidget(self.controls)
-
-        # MIDI preview
-        self.midi_preview = MidiPreview()
-        splitter.addWidget(self.midi_preview)
-
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setStretchFactor(2, 3)
-
-        main_layout.addWidget(splitter, 1)
+        self.controls.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        main_layout.addWidget(self.controls)
 
         # Export row
         export_row = QHBoxLayout()
@@ -475,10 +493,6 @@ class MainWindow(QMainWindow):
         self.save_btn = QPushButton("Save .mid File")
         self.save_btn.setEnabled(False)
         export_row.addWidget(self.save_btn)
-
-        self.open_system_btn = QPushButton("Open with System Default")
-        self.open_system_btn.setEnabled(False)
-        export_row.addWidget(self.open_system_btn)
 
         export_row.addStretch()
 
@@ -498,7 +512,13 @@ class MainWindow(QMainWindow):
         self.controls.auto_detect_bpm_requested.connect(self._on_auto_detect_bpm)
         self.controls.settings_changed.connect(self._save_config)
         self.save_btn.clicked.connect(self._on_save_midi)
-        self.open_system_btn.clicked.connect(self._on_open_system)
+        self.controls.range_low_slider.valueChanged.connect(self._on_note_range_changed)
+        self.controls.range_high_slider.valueChanged.connect(self._on_note_range_changed)
+
+    def _on_note_range_changed(self) -> None:
+        self.waveform_view.set_note_range_zoom(
+            self.controls.note_low, self.controls.note_high
+        )
 
     # --- File loading ---
 
@@ -534,7 +554,7 @@ class MainWindow(QMainWindow):
             # Reset output state
             self._processed_notes = []
             self._midi_obj = None
-            self.midi_preview.clear()
+            self.waveform_view.clear_midi()
             self._set_export_enabled(False)
 
         except Exception as e:
@@ -594,6 +614,9 @@ class MainWindow(QMainWindow):
             ensemble_passes=self.controls.ensemble_passes,
             use_hpss=self.controls.use_hpss,
             filter_harmonics=self.controls.do_filter_harmonics,
+            quantize_grid=self.controls.quantize_grid,
+            melodia_trick=self.controls.melodia_trick,
+            velocity_curve=self.controls.velocity_curve,
         )
 
         self.controls.set_generate_enabled(False)
@@ -611,7 +634,10 @@ class MainWindow(QMainWindow):
         self.controls.set_generate_enabled(True)
         self._set_export_enabled(True)
 
-        self.midi_preview.display(notes, self.controls.dynamic_velocity)
+        self.waveform_view.display_midi(
+            notes, self.controls.dynamic_velocity,
+            selection_start=self.waveform_view.start_sec,
+        )
         self.status_bar.showMessage(
             f"Done — {len(notes)} notes generated"
         )
@@ -630,7 +656,6 @@ class MainWindow(QMainWindow):
 
     def _set_export_enabled(self, enabled: bool) -> None:
         self.save_btn.setEnabled(enabled)
-        self.open_system_btn.setEnabled(enabled)
         if not enabled:
             self.drag_label.set_midi_path(None)
 
@@ -647,16 +672,6 @@ class MainWindow(QMainWindow):
         if path:
             save(self._midi_obj, Path(path))
             self.status_bar.showMessage(f"Saved: {path}")
-
-    def _on_open_system(self) -> None:
-        if self._midi_obj is None:
-            return
-        temp_path = save_temp(self._midi_obj)
-        if sys.platform == 'win32':
-            os.startfile(str(temp_path))
-        else:
-            subprocess.run(['xdg-open', str(temp_path)], check=False)
-        self.status_bar.showMessage(f"Opened with system default: {temp_path.name}")
 
     # --- Theme ---
 
@@ -708,6 +723,9 @@ class MainWindow(QMainWindow):
             "ensemble_passes": self.controls.ensemble_passes,
             "use_hpss": self.controls.use_hpss,
             "filter_harmonics": self.controls.do_filter_harmonics,
+            "quantize_grid": self.controls.quantize_grid,
+            "melodia_trick": self.controls.melodia_trick,
+            "velocity_curve": self.controls.velocity_curve,
         })
         _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         try:
@@ -719,10 +737,13 @@ class MainWindow(QMainWindow):
     def _apply_config(self) -> None:
         self.controls.bpm = self._config.get("bpm", 120)
         self.controls.set_confidence(self._config.get("confidence_threshold", 0.5))
-        self.controls.set_note_range(
-            self._config.get("note_low", 36),
-            self._config.get("note_high", 84),
-        )
+        note_low = self._config.get("note_low", 36)
+        note_high = self._config.get("note_high", 108)
+        # Sanity check — ensure within bounds
+        if note_low < 24 or note_high > 108 or note_low >= note_high:
+            note_low, note_high = 36, 108
+        self.controls.set_note_range(note_low, note_high)
+        self.waveform_view.set_note_range_zoom(note_low, note_high)
         self.controls.ghost_filter_check.setChecked(
             self._config.get("filter_ghost_notes", True)
         )
@@ -741,8 +762,8 @@ class MainWindow(QMainWindow):
         self.controls.min_note_slider.setValue(
             int(self._config.get("minimum_note_length_ms", 58))
         )
-        self.controls.ensemble_spin.setValue(
-            self._config.get("ensemble_passes", 1)
+        self.controls.ensemble_edit.setText(
+            str(self._config.get("ensemble_passes", 1))
         )
         self.controls.hpss_check.setChecked(
             self._config.get("use_hpss", False)
@@ -750,12 +771,40 @@ class MainWindow(QMainWindow):
         self.controls.harmonic_filter_check.setChecked(
             self._config.get("filter_harmonics", True)
         )
+        grid = self._config.get("quantize_grid", "1/16")
+        idx = self.controls.grid_combo.findText(grid)
+        if idx >= 0:
+            self.controls.grid_combo.setCurrentIndex(idx)
+        self.controls.melodia_check.setChecked(
+            self._config.get("melodia_trick", True)
+        )
+        self.controls.velocity_curve_slider.setValue(
+            int(self._config.get("velocity_curve", 1.0) * 100)
+        )
 
     def closeEvent(self, event) -> None:
         self._save_config()
         event.accept()
 
     # --- Help ---
+
+    def _show_controls_guide(self) -> None:
+        from PyQt6.QtWidgets import QDialog, QTextBrowser, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("MidiGen Controls Guide")
+        dlg.resize(680, 600)
+        layout = QVBoxLayout(dlg)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(False)
+        browser.setHtml(_CONTROLS_GUIDE_HTML)
+        layout.addWidget(browser)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btn_box.rejected.connect(dlg.accept)
+        layout.addWidget(btn_box)
+
+        dlg.exec()
 
     def _show_about(self) -> None:
         QMessageBox.about(
@@ -766,3 +815,218 @@ class MainWindow(QMainWindow):
             "Built with PyQt6, basic-pitch, librosa, and pretty_midi.\n\n"
             "For EDM production workflows.",
         )
+
+
+_CONTROLS_GUIDE_HTML = """
+<h2>MidiGen Controls Guide</h2>
+
+<h3>General Workflow</h3>
+<p>
+1. <b>Load an audio file</b> (MP3, WAV, or FLAC).<br>
+2. Optionally <b>select a time region</b> by dragging the blue handles on the spectrogram.<br>
+3. <b>Adjust parameters</b> below to taste.<br>
+4. Click <b>Generate MIDI</b>.<br>
+5. Review the results in <b>Overlap</b> or <b>MIDI</b> view, tweak, and regenerate as needed.<br>
+6. <b>Save</b> or <b>drag</b> the .mid file into your DAW.
+</p>
+
+<hr>
+<h3>BPM</h3>
+<p>
+Beats per minute — used for quantizing detected notes to a rhythmic grid.
+Type the value directly.
+</p>
+<ul>
+<li><b>Auto-Detect</b> — Analyzes the loaded audio and estimates the tempo using librosa.
+Works well on rhythmic material; may be inaccurate on rubato or ambient pieces.</li>
+<li><b>Recommended:</b> Use Auto-Detect as a starting point, then round to the nearest
+whole number if you know the track's BPM.</li>
+</ul>
+
+<hr>
+<h3>Confidence Threshold</h3>
+<p>
+Minimum amplitude a detected note must have to be kept. Filters out quiet artifacts.
+The slider goes from 0.10 (keep almost everything) to 1.00 (only the loudest notes).
+</p>
+<ul>
+<li><b>0.30 – 0.50</b> — Good default range for most material.</li>
+<li><b>Lower (0.15 – 0.25)</b> — Use for quiet or pad-heavy material where you want every note.</li>
+<li><b>Higher (0.60+)</b> — Use to cut through noisy mixes and keep only dominant notes.</li>
+</ul>
+
+<hr>
+<h3>Note Range</h3>
+<p>
+A dual-handle slider setting the lowest and highest MIDI notes to keep.
+Notes outside this range are discarded after transcription. Drag the left handle
+to set the low cutoff and the right handle to set the high cutoff.
+The labels on each side update to show the current note names.
+</p>
+<ul>
+<li><b>C2 – C6 (default)</b> — Covers most melodic content.</li>
+<li><b>Widen to C1 – C7</b> — For bass-heavy tracks or material with high harmonics.</li>
+<li><b>Narrow range</b> — Useful for isolating bass (C1 – C3) or lead melodies (C4 – C7).</li>
+</ul>
+
+<hr>
+<h3>ML Model Tuning</h3>
+
+<p><b>Onset Sensitivity</b> (0.05 – 0.95)</p>
+<p>
+Controls how easily the model registers a new note starting. Lower values detect more
+note onsets, especially in dense chords. Higher values are more selective.
+</p>
+<ul>
+<li><b>0.50 (default)</b> — Balanced for most material.</li>
+<li><b>0.20 – 0.30</b> — Better for dense chords and rapid passages.</li>
+<li><b>0.60 – 0.80</b> — Cleaner output on simple melodies, but may miss notes in chords.</li>
+</ul>
+
+<p><b>Sustain Sensitivity</b> (0.05 – 0.95)</p>
+<p>
+Controls how easily the model sustains an already-detected note. Lower values produce
+longer notes (good for pads and sustained chords). Higher values cut notes short.
+</p>
+<ul>
+<li><b>0.30 (default)</b> — Good general starting point.</li>
+<li><b>0.10 – 0.20</b> — Better for pads, sustained chords, and legato passages.</li>
+<li><b>0.50+</b> — Tighter output, better for staccato/percussive material.</li>
+</ul>
+
+<p><b>Min Note Length</b> (10 – 300 ms)</p>
+<p>
+Shortest note the model will output. Filters out extremely brief artifacts.
+</p>
+<ul>
+<li><b>58 ms (default)</b> — Catches most articulations without too much noise.</li>
+<li><b>25 – 40 ms</b> — For very fast arpeggios or grace notes.</li>
+<li><b>80 – 150 ms</b> — Cleaner output, removes fast artifacts but may miss quick notes.</li>
+</ul>
+
+<p><b>Ensemble Passes</b> (1 – 5)</p>
+<p>
+Runs the ML model multiple times with different sensitivity presets and keeps only
+notes that appear consistently across passes (majority vote). This dramatically
+reduces false positives (overtones, ghost notes) while keeping real notes.
+</p>
+<ul>
+<li><b>1 (default)</b> — Single pass. Fastest, uses your slider settings directly.</li>
+<li><b>3</b> — Good balance of quality and speed. Recommended for most use.</li>
+<li><b>5</b> — Maximum quality. Best for complex material, but takes 5x longer.</li>
+</ul>
+<p><i>Note: In ensemble mode, the Onset/Sustain/Min Note sliders are ignored — the
+ensemble uses its own built-in presets ranging from conservative to aggressive.</i></p>
+
+<p><b>Melodia Filter</b></p>
+<p>
+Uses the Melodia algorithm to clean up pitch contours in the model output.
+On by default. Try disabling for dense polyphonic material where Melodia
+may incorrectly suppress valid simultaneous notes.
+</p>
+
+<hr>
+<h3>DSP &amp; Options</h3>
+
+<p><b>HPSS Separation</b></p>
+<p>
+Applies Harmonic/Percussive Source Separation to strip drums and percussive clicks
+before transcription. Essential for real tracks with drums. Not needed for clean
+piano or synth recordings.
+</p>
+
+<p><b>Filter Overtones</b></p>
+<p>
+Removes notes that are likely harmonics/overtones of louder fundamental notes
+(octaves, fifths, etc). Uses a 1.5x amplitude ratio.
+</p>
+<ul>
+<li><b>ON (default)</b> — Good for melodies, arpeggios, and single-note lines.</li>
+<li><b>OFF</b> — Better for chords and pads, where "overtones" may actually be
+real notes in the chord.</li>
+</ul>
+
+<p><b>Filter Ghost Notes</b></p>
+<p>
+Removes notes shorter than a 1/16th note (based on BPM) before quantization.
+Cleans up very short artifacts. Leave ON for most use.
+</p>
+
+<p><b>Dynamic Velocity</b></p>
+<p>
+When ON, maps the detected amplitude of each note to MIDI velocity (0–127).
+When OFF (default), all notes get a fixed velocity of 100.
+Useful for expressive performances; less useful for electronic music where
+you want consistent velocity.
+</p>
+
+<p><b>Preserve Note Lengths</b></p>
+<p>
+When ON, detected note durations are kept (snapped to the rhythmic grid).
+When OFF, all notes are forced to one grid unit length — useful for
+re-triggering synths or samplers.
+</p>
+
+<p><b>Quantize Grid</b></p>
+<p>
+Sets the rhythmic resolution for quantization. All note start times and
+durations are snapped to this grid.
+</p>
+<ul>
+<li><b>1/8</b> — Eighth notes. Coarse grid, good for slow material.</li>
+<li><b>1/16 (default)</b> — Sixteenth notes. Standard resolution for most music.</li>
+<li><b>1/32</b> — Thirty-second notes. Fine grid for fast passages.</li>
+<li><b>1/8T</b> — Eighth-note triplets.</li>
+<li><b>1/16T</b> — Sixteenth-note triplets.</li>
+</ul>
+
+<p><b>Velocity Curve</b></p>
+<p>
+When Dynamic Velocity is ON, this exponent shapes the amplitude-to-velocity
+mapping. Only affects the MIDI output, not detection.
+</p>
+<ul>
+<li><b>1.00 (default)</b> — Linear mapping.</li>
+<li><b>&lt; 1.0 (e.g. 0.50)</b> — Boosts quiet notes, more dynamic range visible.</li>
+<li><b>&gt; 1.0 (e.g. 2.00)</b> — Compresses dynamics, quieter notes become even quieter.</li>
+</ul>
+
+<hr>
+<h3>View Modes (Spectrogram)</h3>
+<ul>
+<li><b>Frequencies</b> — Shows the mel spectrogram heatmap only. Always available.</li>
+<li><b>Overlap</b> — Shows MIDI notes overlaid on the spectrogram so you can visually
+compare detected notes against the frequency content. Available after generating MIDI.</li>
+<li><b>MIDI</b> — Shows a piano roll view of MIDI notes only, with pitch labels.
+Available after generating MIDI.</li>
+</ul>
+
+<hr>
+<h3>Quick-Start Presets by Material Type</h3>
+<table border="1" cellpadding="4" cellspacing="0">
+<tr>
+  <th>Material</th><th>Confidence</th><th>Onset</th><th>Sustain</th>
+  <th>Overtones</th><th>HPSS</th><th>Ensemble</th>
+</tr>
+<tr>
+  <td>Clean piano / melody</td><td>0.50</td><td>0.50</td><td>0.30</td>
+  <td>ON</td><td>OFF</td><td>1</td>
+</tr>
+<tr>
+  <td>Dense chords</td><td>0.23</td><td>0.55</td><td>0.15</td>
+  <td>OFF</td><td>OFF</td><td>3</td>
+</tr>
+<tr>
+  <td>Sustained pads</td><td>0.30</td><td>0.40</td><td>0.15</td>
+  <td>OFF</td><td>OFF</td><td>1</td>
+</tr>
+<tr>
+  <td>Full mix with drums</td><td>0.40</td><td>0.50</td><td>0.30</td>
+  <td>ON</td><td>ON</td><td>3</td>
+</tr>
+<tr>
+  <td>Fast arpeggios</td><td>0.50</td><td>0.50</td><td>0.30</td>
+  <td>ON</td><td>OFF</td><td>1</td>
+</tr>
+</table>
+"""

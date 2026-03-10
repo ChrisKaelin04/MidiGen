@@ -30,6 +30,7 @@ def _run_predict(
     onset_threshold: float,
     frame_threshold: float,
     minimum_note_length_ms: float,
+    melodia_trick: bool = True,
 ) -> list[NoteEvent]:
     """Run a single basic-pitch prediction pass."""
     from basic_pitch.inference import predict
@@ -39,13 +40,14 @@ def _run_predict(
         onset_threshold=onset_threshold,
         frame_threshold=frame_threshold,
         minimum_note_length=minimum_note_length_ms,
+        melodia_trick=melodia_trick,
     )
 
     return [
         NoteEvent(
             pitch=int(event[2]),
-            start_sec=float(event[0]),
-            end_sec=float(event[1]),
+            start_sec=max(0.0, float(event[0])),
+            end_sec=max(0.0, float(event[1])),
             amplitude=float(event[3]),
         )
         for event in note_events
@@ -125,6 +127,7 @@ def transcribe(
     frame_threshold: float = 0.3,
     minimum_note_length_ms: float = 58,
     ensemble_passes: int = 1,
+    melodia_trick: bool = True,
 ) -> list[NoteEvent]:
     """Transcribe audio to a list of note events using basic-pitch.
 
@@ -159,7 +162,7 @@ def transcribe(
             # Single pass with user-specified parameters
             notes = _run_predict(
                 str(tmp_path), onset_threshold, frame_threshold,
-                minimum_note_length_ms,
+                minimum_note_length_ms, melodia_trick=melodia_trick,
             )
         else:
             # Multi-pass ensemble
@@ -173,7 +176,10 @@ def transcribe(
 
             all_passes: list[list[NoteEvent]] = []
             for onset, frame, min_len in presets:
-                pass_notes = _run_predict(str(tmp_path), onset, frame, min_len)
+                pass_notes = _run_predict(
+                    str(tmp_path), onset, frame, min_len,
+                    melodia_trick=melodia_trick,
+                )
                 all_passes.append(pass_notes)
 
             # Require majority vote

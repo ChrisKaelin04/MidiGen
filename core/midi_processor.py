@@ -13,10 +13,25 @@ from core import NoteEvent
 _HARMONIC_INTERVALS = [12, 19, 24, 28, 31]
 
 
+_GRID_DIVISORS = {
+    "1/8":  2.0,
+    "1/16": 4.0,
+    "1/32": 8.0,
+    "1/8T": 3.0,
+    "1/16T": 6.0,
+}
+
+
+def _grid_duration(bpm: float, grid: str = "1/16") -> float:
+    """Return the duration of one grid unit in seconds at the given BPM."""
+    beat_sec = 60.0 / bpm
+    divisor = _GRID_DIVISORS.get(grid, 4.0)
+    return beat_sec / divisor
+
+
 def _sixteenth_duration(bpm: float) -> float:
     """Return the duration of one 1/16th note in seconds at the given BPM."""
-    beat_sec = 60.0 / bpm
-    return beat_sec / 4.0
+    return _grid_duration(bpm, "1/16")
 
 
 def filter_note_range(notes: list[NoteEvent], low: int, high: int) -> list[NoteEvent]:
@@ -49,22 +64,22 @@ def filter_ghost_notes(notes: list[NoteEvent], bpm: float) -> list[NoteEvent]:
     return [n for n in notes if (n.end_sec - n.start_sec) >= min_duration]
 
 
-def quantize_onsets(notes: list[NoteEvent], bpm: float) -> list[NoteEvent]:
-    """Snap note start times to the nearest 1/16th note grid position.
+def quantize_onsets(notes: list[NoteEvent], bpm: float, grid: str = "1/16") -> list[NoteEvent]:
+    """Snap note start times to the nearest grid position.
 
     Args:
         notes: Input note events.
         bpm: Current BPM for calculating grid positions.
+        grid: Grid resolution ("1/8", "1/16", "1/32", "1/8T", "1/16T").
 
     Returns:
         New list with quantized start times (end times adjusted by same delta).
     """
-    grid = _sixteenth_duration(bpm)
+    step = _grid_duration(bpm, grid)
     result: list[NoteEvent] = []
     for n in notes:
-        # Find nearest grid position
-        grid_index = round(n.start_sec / grid)
-        quantized_start = grid_index * grid
+        grid_index = round(n.start_sec / step)
+        quantized_start = grid_index * step
         delta = quantized_start - n.start_sec
         result.append(NoteEvent(
             pitch=n.pitch,
@@ -75,17 +90,18 @@ def quantize_onsets(notes: list[NoteEvent], bpm: float) -> list[NoteEvent]:
     return result
 
 
-def set_durations(notes: list[NoteEvent], bpm: float) -> list[NoteEvent]:
-    """Set all note durations to exactly one 1/16th note.
+def set_durations(notes: list[NoteEvent], bpm: float, grid: str = "1/16") -> list[NoteEvent]:
+    """Set all note durations to exactly one grid unit.
 
     Args:
         notes: Input note events.
-        bpm: Current BPM for calculating 1/16th note length.
+        bpm: Current BPM for calculating grid length.
+        grid: Grid resolution.
 
     Returns:
         New list with uniform durations.
     """
-    dur = _sixteenth_duration(bpm)
+    dur = _grid_duration(bpm, grid)
     return [
         NoteEvent(
             pitch=n.pitch,
@@ -142,26 +158,26 @@ def filter_harmonics(notes: list[NoteEvent], onset_tol: float = 0.05) -> list[No
     return [n for n, flagged in zip(sorted_notes, is_harmonic) if not flagged]
 
 
-def snap_durations(notes: list[NoteEvent], bpm: float) -> list[NoteEvent]:
-    """Snap note end times to the nearest 1/16th grid position.
+def snap_durations(notes: list[NoteEvent], bpm: float, grid: str = "1/16") -> list[NoteEvent]:
+    """Snap note end times to the nearest grid position.
 
     Preserves detected note lengths but rounds them to clean grid values.
-    Ensures a minimum duration of one 1/16th note.
+    Ensures a minimum duration of one grid unit.
 
     Args:
         notes: Input note events (start times should already be quantized).
         bpm: Current BPM for calculating grid positions.
+        grid: Grid resolution.
 
     Returns:
-        New list with end times snapped to grid, minimum 1/16th duration.
+        New list with end times snapped to grid, minimum one grid unit duration.
     """
-    grid = _sixteenth_duration(bpm)
+    step = _grid_duration(bpm, grid)
     result: list[NoteEvent] = []
     for n in notes:
         raw_duration = n.end_sec - n.start_sec
-        # Round duration to nearest grid multiple, minimum 1
-        grid_count = max(1, round(raw_duration / grid))
-        snapped_end = n.start_sec + grid_count * grid
+        grid_count = max(1, round(raw_duration / step))
+        snapped_end = n.start_sec + grid_count * step
         result.append(NoteEvent(
             pitch=n.pitch,
             start_sec=n.start_sec,
@@ -171,24 +187,33 @@ def snap_durations(notes: list[NoteEvent], bpm: float) -> list[NoteEvent]:
     return result
 
 
-def apply_velocity(notes: list[NoteEvent], dynamic: bool) -> list[NoteEvent]:
-    """Map amplitude to MIDI velocity.
+def apply_velocity(notes: list[NoteEvent], dynamic: bool,
+                   velocity_curve: float = 1.0) -> list[NoteEvent]:
+    """Map amplitude to MIDI velocity with optional curve shaping.
 
-    In dynamic mode, amplitude (0.0-1.0) maps linearly to velocity (1-127).
+    In dynamic mode, amplitude is shaped by the velocity curve exponent:
+      shaped = amplitude ^ velocity_curve
+    - curve=1.0: linear (default)
+    - curve<1.0: boosts quiet notes (e.g. 0.5 = square root)
+    - curve>1.0: compresses quiet notes (e.g. 2.0 = squared)
+
     In fixed mode, all velocities are set to 100 (amplitude set to 100/127).
 
     Args:
         notes: Input note events.
         dynamic: If True, use amplitude-based velocity; if False, use fixed velocity.
+        velocity_curve: Exponent for shaping the amplitude-to-velocity mapping.
 
     Returns:
         New list with amplitude values set for velocity mapping.
     """
     if dynamic:
-        # Clamp amplitude to [0.0, 1.0] range and ensure minimum velocity of 1
         result = []
         for n in notes:
             clamped = max(0.0, min(1.0, n.amplitude))
+            # Apply curve shaping
+            if velocity_curve != 1.0 and clamped > 0:
+                clamped = clamped ** velocity_curve
             # Ensure at least 1/127 so velocity is never 0
             if clamped < 1.0 / 127.0:
                 clamped = 1.0 / 127.0
@@ -215,18 +240,20 @@ def apply_velocity(notes: list[NoteEvent], dynamic: bool) -> list[NoteEvent]:
 def process(notes: list[NoteEvent], bpm: float, note_low: int, note_high: int,
             do_filter_ghosts: bool, dynamic_velocity: bool,
             preserve_durations: bool = True,
-            do_filter_harmonics: bool = True) -> list[NoteEvent]:
+            do_filter_harmonics: bool = True,
+            quantize_grid: str = "1/16",
+            velocity_curve: float = 1.0) -> list[NoteEvent]:
     """Run the full processing pipeline on a list of note events.
 
     Steps executed in order:
     1. Filter harmonics / overtones (if enabled)
     2. Filter by note range
     3. Filter ghost notes (if enabled)
-    4. Quantize onsets to 1/16th grid
+    4. Quantize onsets to grid
     5. Duration handling:
        - preserve_durations=True: snap end times to grid (keeps detected lengths)
-       - preserve_durations=False: force all durations to 1/16th note
-    6. Apply velocity mapping
+       - preserve_durations=False: force all durations to one grid unit
+    6. Apply velocity mapping with optional curve
 
     Args:
         notes: Raw note events from transcription.
@@ -237,6 +264,8 @@ def process(notes: list[NoteEvent], bpm: float, note_low: int, note_high: int,
         dynamic_velocity: Whether to use dynamic or fixed velocity.
         preserve_durations: Whether to keep detected note lengths.
         do_filter_harmonics: Whether to remove likely overtone notes.
+        quantize_grid: Grid resolution ("1/8", "1/16", "1/32", "1/8T", "1/16T").
+        velocity_curve: Exponent for velocity shaping (1.0=linear).
 
     Returns:
         Processed list of NoteEvent ready for MIDI export.
@@ -247,10 +276,10 @@ def process(notes: list[NoteEvent], bpm: float, note_low: int, note_high: int,
     result = filter_note_range(result, note_low, note_high)
     if do_filter_ghosts:
         result = filter_ghost_notes(result, bpm)
-    result = quantize_onsets(result, bpm)
+    result = quantize_onsets(result, bpm, quantize_grid)
     if preserve_durations:
-        result = snap_durations(result, bpm)
+        result = snap_durations(result, bpm, quantize_grid)
     else:
-        result = set_durations(result, bpm)
-    result = apply_velocity(result, dynamic_velocity)
+        result = set_durations(result, bpm, quantize_grid)
+    result = apply_velocity(result, dynamic_velocity, velocity_curve)
     return result
