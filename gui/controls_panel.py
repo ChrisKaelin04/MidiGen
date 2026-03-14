@@ -5,6 +5,7 @@ from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -132,7 +134,70 @@ class ControlsPanel(QWidget):
 
         layout.addLayout(top_row)
 
-        # === Middle row: ML Model Tuning (grid) | DSP & Toggles ===
+        # === Preprocessing (runs BEFORE transcription — shown first to match pipeline order) ===
+        # Future improvement: an optional wizard/baseline setter that asks the
+        # user what type of sound it is (synth lead, chord pad, bass, etc.),
+        # whether it's polyphonic, and other expectations — then auto-configures
+        # all preprocessing and processing settings. For now, manual toggles.
+        preproc_group = QGroupBox("Preprocessing (before transcription)")
+        preproc_layout = QGridLayout(preproc_group)
+        preproc_layout.setContentsMargins(6, 14, 6, 4)
+        preproc_layout.setSpacing(4)
+
+        self.hpss_check = QCheckBox("HPSS separation")
+        self.hpss_check.setChecked(False)
+        self.hpss_check.setToolTip(
+            "Strip percussive content (drums, clicks) before transcription.\n"
+            "Essential for real tracks with drums. Demucs preferred when available."
+        )
+        preproc_layout.addWidget(self.hpss_check, 0, 0)
+
+        self.normalize_check = QCheckBox("Normalize loudness")
+        self.normalize_check.setChecked(False)
+        self.normalize_check.setToolTip(
+            "Normalize audio to a consistent loudness level before\n"
+            "transcription. Helps when source recordings have wildly\n"
+            "different volumes."
+        )
+        preproc_layout.addWidget(self.normalize_check, 0, 1)
+
+        self.noise_gate_check = QCheckBox("Noise gate")
+        self.noise_gate_check.setChecked(False)
+        self.noise_gate_check.setToolTip(
+            "Silence low-level content (reverb tails, background noise)\n"
+            "below a threshold. Gives the model cleaner note boundaries.\n"
+            "May hurt sustained/quiet passages — use with care."
+        )
+        preproc_layout.addWidget(self.noise_gate_check, 0, 2)
+
+        self.pre_emphasis_check = QCheckBox("Pre-emphasis EQ")
+        self.pre_emphasis_check.setChecked(False)
+        self.pre_emphasis_check.setToolTip(
+            "Apply a gentle EQ boost in a target frequency range before\n"
+            "transcription. Can help the model detect notes it's weak on."
+        )
+        preproc_layout.addWidget(self.pre_emphasis_check, 1, 0)
+
+        # Pre-emphasis boost amount (user-settable)
+        emph_row = QHBoxLayout()
+        emph_row.addWidget(QLabel("Boost:"))
+        self.pre_emphasis_boost_spin = QDoubleSpinBox()
+        self.pre_emphasis_boost_spin.setRange(0.5, 6.0)
+        self.pre_emphasis_boost_spin.setValue(1.5)
+        self.pre_emphasis_boost_spin.setSingleStep(0.5)
+        self.pre_emphasis_boost_spin.setSuffix(" dB")
+        self.pre_emphasis_boost_spin.setFixedWidth(75)
+        self.pre_emphasis_boost_spin.setToolTip(
+            "Amount of EQ boost in the target frequency range.\n"
+            "Keep it subtle (1-2 dB) to avoid distortion."
+        )
+        emph_row.addWidget(self.pre_emphasis_boost_spin)
+        emph_row.addStretch()
+        preproc_layout.addLayout(emph_row, 1, 1)
+
+        layout.addWidget(preproc_group)
+
+        # === Middle row: ML Model Tuning (grid) | Post-processing ===
         mid_row = QHBoxLayout()
         mid_row.setSpacing(8)
 
@@ -214,18 +279,11 @@ class ControlsPanel(QWidget):
 
         mid_row.addWidget(ml_group, 2)
 
-        # -- DSP & Toggles combined --
-        dsp_group = QGroupBox("DSP & Options")
+        # -- Post-processing (after transcription) --
+        dsp_group = QGroupBox("Post-processing (after transcription)")
         dsp_layout = QGridLayout(dsp_group)
         dsp_layout.setContentsMargins(6, 14, 6, 4)
         dsp_layout.setSpacing(4)
-
-        self.hpss_check = QCheckBox("HPSS separation")
-        self.hpss_check.setChecked(False)
-        self.hpss_check.setToolTip(
-            "Strip percussive content (drums, clicks) before transcription.\n"
-            "Essential for real tracks with drums."
-        )
 
         self.harmonic_filter_check = QCheckBox("Filter overtones")
         self.harmonic_filter_check.setChecked(True)
@@ -284,13 +342,12 @@ class ControlsPanel(QWidget):
         vel_row.addWidget(self.velocity_curve_slider, 1)
         vel_row.addWidget(self.velocity_curve_label)
 
-        dsp_layout.addWidget(self.hpss_check, 0, 0)
-        dsp_layout.addWidget(self.harmonic_filter_check, 0, 1)
-        dsp_layout.addWidget(self.ghost_filter_check, 1, 0)
-        dsp_layout.addWidget(self.dynamic_velocity_check, 1, 1)
-        dsp_layout.addWidget(self.preserve_durations_check, 2, 0)
-        dsp_layout.addLayout(grid_row, 2, 1)
-        dsp_layout.addLayout(vel_row, 3, 0, 1, 2)
+        dsp_layout.addWidget(self.harmonic_filter_check, 0, 0)
+        dsp_layout.addWidget(self.ghost_filter_check, 0, 1)
+        dsp_layout.addWidget(self.dynamic_velocity_check, 1, 0)
+        dsp_layout.addWidget(self.preserve_durations_check, 1, 1)
+        dsp_layout.addLayout(grid_row, 2, 0)
+        dsp_layout.addLayout(vel_row, 2, 1)
 
         mid_row.addWidget(dsp_group, 1)
 
@@ -338,6 +395,10 @@ class ControlsPanel(QWidget):
         self.grid_combo.currentTextChanged.connect(lambda _: self.settings_changed.emit())
         self.melodia_check.stateChanged.connect(self.settings_changed.emit)
         self.velocity_curve_slider.valueChanged.connect(self.settings_changed.emit)
+        self.normalize_check.stateChanged.connect(self.settings_changed.emit)
+        self.noise_gate_check.stateChanged.connect(self.settings_changed.emit)
+        self.pre_emphasis_check.stateChanged.connect(self.settings_changed.emit)
+        self.pre_emphasis_boost_spin.valueChanged.connect(lambda _: self.settings_changed.emit())
 
     def _on_range_low_changed(self, value: int) -> None:
         # Don't let low exceed high
@@ -451,6 +512,22 @@ class ControlsPanel(QWidget):
     @property
     def velocity_curve(self) -> float:
         return self.velocity_curve_slider.value() / 100.0
+
+    @property
+    def normalize_loudness(self) -> bool:
+        return self.normalize_check.isChecked()
+
+    @property
+    def noise_gate(self) -> bool:
+        return self.noise_gate_check.isChecked()
+
+    @property
+    def pre_emphasis(self) -> bool:
+        return self.pre_emphasis_check.isChecked()
+
+    @property
+    def pre_emphasis_boost_db(self) -> float:
+        return self.pre_emphasis_boost_spin.value()
 
     def set_note_range(self, low: int, high: int) -> None:
         """Set the note range from MIDI numbers."""

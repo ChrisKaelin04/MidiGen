@@ -23,7 +23,7 @@ import pretty_midi
 import pytest
 
 from core import ProcessingConfig
-from core.audio_loader import load_audio, apply_hpss
+from core.audio_loader import load_audio, apply_hpss, normalize_loudness, apply_noise_gate, apply_pre_emphasis
 from core.transcriber import transcribe
 from core.spectral_validator import spectral_validate
 from core.midi_processor import process
@@ -223,6 +223,14 @@ def test_pipeline_fixture(pair: FixturePair) -> None:
         spectral_blind_spot_boost_db=meta.get('spectral_blind_spot_boost_db', 8.0),
         spectral_do_recover=meta.get('spectral_do_recover', True),
         spectral_do_resolve_overlaps=meta.get('spectral_do_resolve_overlaps', True),
+        normalize_loudness=meta.get('normalize_loudness', False),
+        target_lufs=meta.get('target_lufs', -14.0),
+        noise_gate=meta.get('noise_gate', False),
+        noise_gate_threshold_db=meta.get('noise_gate_threshold_db', -40.0),
+        pre_emphasis=meta.get('pre_emphasis', False),
+        pre_emphasis_boost_db=meta.get('pre_emphasis_boost_db', 1.5),
+        pre_emphasis_low_hz=meta.get('pre_emphasis_low_hz', 440.0),
+        pre_emphasis_high_hz=meta.get('pre_emphasis_high_hz', 520.0),
     )
 
     end_sec = config.end_sec if config.end_sec > 0 else None
@@ -230,6 +238,19 @@ def test_pipeline_fixture(pair: FixturePair) -> None:
 
     if config.use_hpss:
         audio = apply_hpss(audio)
+
+    # Preprocessing pipeline
+    if config.normalize_loudness:
+        audio = normalize_loudness(audio, target_lufs=config.target_lufs)
+    if config.noise_gate:
+        audio = apply_noise_gate(audio, threshold_db=config.noise_gate_threshold_db)
+    if config.pre_emphasis:
+        audio = apply_pre_emphasis(
+            audio,
+            boost_db=config.pre_emphasis_boost_db,
+            low_hz=config.pre_emphasis_low_hz,
+            high_hz=config.pre_emphasis_high_hz,
+        )
 
     notes = transcribe(
         audio,

@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core import AudioData, NoteEvent, ProcessingConfig
-from core.audio_loader import load_audio, detect_bpm, apply_hpss
+from core.audio_loader import load_audio, detect_bpm, apply_hpss, normalize_loudness, apply_noise_gate, apply_pre_emphasis
 from core.transcriber import transcribe
 from core.spectral_validator import spectral_validate
 from core.midi_processor import process
@@ -51,6 +51,10 @@ _DEFAULT_CONFIG = {
     "quantize_grid": "1/16",
     "melodia_trick": True,
     "velocity_curve": 1.0,
+    "normalize_loudness": False,
+    "noise_gate": False,
+    "pre_emphasis": False,
+    "pre_emphasis_boost_db": 1.5,
     "theme": "dark",
     "last_directory": str(Path.home()),
 }
@@ -339,6 +343,21 @@ class _PipelineWorker(QThread):
             if self.config.use_hpss:
                 self.status.emit("Applying harmonic separation (HPSS)...")
                 audio = apply_hpss(audio)
+
+            if self.config.normalize_loudness:
+                self.status.emit("Normalizing loudness...")
+                audio = normalize_loudness(audio, target_lufs=self.config.target_lufs)
+            if self.config.noise_gate:
+                self.status.emit("Applying noise gate...")
+                audio = apply_noise_gate(audio, threshold_db=self.config.noise_gate_threshold_db)
+            if self.config.pre_emphasis:
+                self.status.emit("Applying pre-emphasis EQ...")
+                audio = apply_pre_emphasis(
+                    audio,
+                    boost_db=self.config.pre_emphasis_boost_db,
+                    low_hz=self.config.pre_emphasis_low_hz,
+                    high_hz=self.config.pre_emphasis_high_hz,
+                )
 
             passes = self.config.ensemble_passes
             if passes > 1:
@@ -639,6 +658,10 @@ class MainWindow(QMainWindow):
             quantize_grid=self.controls.quantize_grid,
             melodia_trick=self.controls.melodia_trick,
             velocity_curve=self.controls.velocity_curve,
+            normalize_loudness=self.controls.normalize_loudness,
+            noise_gate=self.controls.noise_gate,
+            pre_emphasis=self.controls.pre_emphasis,
+            pre_emphasis_boost_db=self.controls.pre_emphasis_boost_db,
         )
 
         self.controls.set_generate_enabled(False)
@@ -748,6 +771,10 @@ class MainWindow(QMainWindow):
             "quantize_grid": self.controls.quantize_grid,
             "melodia_trick": self.controls.melodia_trick,
             "velocity_curve": self.controls.velocity_curve,
+            "normalize_loudness": self.controls.normalize_loudness,
+            "noise_gate": self.controls.noise_gate,
+            "pre_emphasis": self.controls.pre_emphasis,
+            "pre_emphasis_boost_db": self.controls.pre_emphasis_boost_db,
         })
         _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         try:
@@ -802,6 +829,18 @@ class MainWindow(QMainWindow):
         )
         self.controls.velocity_curve_slider.setValue(
             int(self._config.get("velocity_curve", 1.0) * 100)
+        )
+        self.controls.normalize_check.setChecked(
+            self._config.get("normalize_loudness", False)
+        )
+        self.controls.noise_gate_check.setChecked(
+            self._config.get("noise_gate", False)
+        )
+        self.controls.pre_emphasis_check.setChecked(
+            self._config.get("pre_emphasis", False)
+        )
+        self.controls.pre_emphasis_boost_spin.setValue(
+            self._config.get("pre_emphasis_boost_db", 1.5)
         )
 
     def closeEvent(self, event) -> None:

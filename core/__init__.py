@@ -71,3 +71,12 @@ class ProcessingConfig:
     spectral_blind_spot_boost_db: float = 8.0
     spectral_do_recover: bool = True
     spectral_do_resolve_overlaps: bool = True
+    # Preprocessing — applied to audio before transcription
+    normalize_loudness: bool = False         # normalize input level
+    target_lufs: float = -14.0               # target loudness for normalization
+    noise_gate: bool = False                 # gate low-level noise/reverb tails
+    noise_gate_threshold_db: float = -40.0   # gate threshold in dB
+    pre_emphasis: bool = False               # gentle EQ boost in weak frequency range
+    pre_emphasis_boost_db: float = 1.5       # boost amount (keep 1-2 dB)
+    pre_emphasis_low_hz: float = 440.0       # lower edge of boost band
+    pre_emphasis_high_hz: float = 520.0      # upper edge of boost band
